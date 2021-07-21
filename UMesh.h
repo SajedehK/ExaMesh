@@ -193,10 +193,10 @@ public:
 
 	void incrementVertIndices(emInt* conn, emInt size, int inc);
 
-	// Writing with compression reduces file size by a little over a factor of two,
-	// at the expense of making file write slower by two orders of magnitude.
-	// So don't do it.
-	// bool writeCompressedUGridFile(const char fileName[]);
+// Sajedeh wrote this: 
+	std::vector<struct vertsPartBdry> getVertsPartBdry (emInt rank);
+// Sajedeh wrote this:
+
 private:
 	void init(const emInt nVerts, const emInt nBdryVerts, const emInt nBdryTris,
 			const emInt nBdryQuads, const emInt nTets, const emInt nPyramids,
