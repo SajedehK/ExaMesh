@@ -25,13 +25,17 @@
 
 #include <unistd.h>
 #include <cstdio>
-
+#include <iostream>
 #include "ExaMesh.h"
 #include "CubicMesh.h"
 #include "UMesh.h"
 
+
+using  std::cout;
+using  std::endl; 
 int main(int argc, char* const argv[]) {
 	char opt = EOF;
+	emInt nPart=1; // Sajedeh wrote this: 
 	emInt nDivs = 1;
 	emInt maxCellsPerPart = 1000000;
 	char type[10];
@@ -39,7 +43,7 @@ int main(int argc, char* const argv[]) {
 	char inFileBaseName[1024];
 	char cgnsFileName[1024];
 	char outFileName[1024];
-	bool isInputCGNS = false, isParallel = false;
+	bool isInputCGNS = false, isParallel =true, isMPI=true; // added by Sajedeh 
 
 	sprintf(type, "vtk");
 	sprintf(infix, "b8");
@@ -47,8 +51,11 @@ int main(int argc, char* const argv[]) {
 	sprintf(inFileBaseName, "/need/a/file/name");
 	sprintf(cgnsFileName, "/need/a/file/name");
 
-	while ((opt = getopt(argc, argv, "c:i:m:n:o:pt:u:")) != EOF) {
+	while ((opt = getopt(argc, argv, "r:c:i:m:n:o:pt:u:")) != EOF) {
 		switch (opt) {
+			case 'r': // r stands for rank 
+			sscanf(optarg,"%d",&nPart); // added by sajedeh 
+			break; 
 			case 'c':
 				sscanf(optarg, "%1023s", cgnsFileName);
 				isInputCGNS = true;
@@ -95,7 +102,7 @@ int main(int argc, char* const argv[]) {
 							(cells / 1000000.) / (time / 60));
 
 //			UMrefined.writeUGridFile("/tmp/junk.b8.ugrid");
-//			UMrefined.writeVTKFile("/tmp/junk.vtk");
+//			UMrefined.writeVTKFile("junk.vtk");
 		}
 #else
 		fprintf(stderr, "Not compiled with CGNS; curved meshes not supported.\n");
@@ -103,9 +110,14 @@ int main(int argc, char* const argv[]) {
 #endif
 	}
 	else {
-		UMesh UMorig(inFileBaseName, type, infix);
+		UMesh UMorig(inFileBaseName, type, infix); 
 		if (isParallel) {
-			UMorig.refineForParallel(nDivs, maxCellsPerPart);
+			if(isMPI){
+				UMorig.refineForMPI(nDivs,nPart); 
+			}else{
+				UMorig.refineForParallel(nDivs, maxCellsPerPart); 
+			} 
+				
 		}
 		if (!isParallel) {
 			double start = exaTime();
@@ -117,11 +129,10 @@ int main(int argc, char* const argv[]) {
 			fprintf(stderr,
 							"                          %5.2F million cells / minute\n",
 							(cells / 1000000.) / (time / 60));
-//			UMrefined.writeUGridFile("/tmp/junk.b8.ugrid");
-//			UMrefined.writeVTKFile("/tmp/junk.vtk");
+	//		UMrefined.writeUGridFile("/tmp/junk.b8.ugrid");
+		  //	UMrefined.writeVTKFile("junk.vtk");
 		}
 	}
-
 	printf("Exiting\n");
 	exit(0);
 }
