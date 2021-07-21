@@ -509,7 +509,7 @@ UMesh::UMesh(const char baseFileName[], const char type[],
 
 	delete reader;
 
-	setupLengthScales();
+	setupLengthScales(); // In the end, lengthScale is set up. 
 }
 
 UMesh::UMesh(const UMesh& UMIn, const int nDivs) :
@@ -943,6 +943,8 @@ std::unique_ptr<UMesh> UMesh::extractCoarseMesh(Part& P,
 
 	// Store the vertices, while keeping a mapping from the full list of verts
 	// to the restricted list so the connectivity can be copied properly.
+
+
 	std::vector<emInt> newIndices(numVerts(), EMINT_MAX);
 	for (emInt ii = 0; ii < numVerts(); ii++) {
 		if (isVertUsed[ii]) {
@@ -1028,6 +1030,8 @@ std::unique_ptr<UMesh> UMesh::createFineUMesh(const emInt numDivs, Part& P,
 	auto coarse = extractCoarseMesh(P, vecCPD);
 	double middle = exaTime();
 	RS.extractTime = middle - start;
+// I guess here you should make a change in a way that lengthscale is different for each part! 
+
 
 	auto UUM = std::make_unique<UMesh>(*coarse, numDivs);
 	RS.cells = UUM->numCells();
@@ -1062,30 +1066,43 @@ void UMesh::setupCellDataForPartitioning(std::vector<CellPartData>& vecCPD,
 	}
 }
 
+// Sajedeh added this: 
+std::vector<struct vertsPartBdry> UMesh::getVertsPartBdry (emInt rank){
+	std::vector<struct vertsPartBdry> temp;
+	std::set<emInt> vertsBdry; 
+	 for (emInt i = 0; i < numBdryTris(); i++) {
+	 	const emInt *verts = getBdryTriConn(i); 
+	 	vertsBdry.insert(verts[0]); 
+		vertsBdry.insert(verts[1]);
+	 	vertsBdry.insert(verts[2]);
+	 }
 
-//bool UMesh::writeCompressedUGridFile(const char fileName[]) {
-//	double timeBefore = clock() / double(CLOCKS_PER_SEC);
-//
-//	gzFile outFile = gzopen(fileName, "wb");
-//	if (!outFile) {
-//		fprintf(stderr, "Couldn't open file %s for writing.  Bummer!\n", fileName);
-//		return false;
-//	}
-//
-//	int bytesWritten = gzwrite(outFile, reinterpret_cast<void*>(m_fileImage),
-//															m_fileImageSize);
-//	gzclose(outFile);
-//	fprintf(stderr, "Wrote %d bytes into a compressed file as %d bytes\n",
-//					m_fileImageSize, bytesWritten);
-//
-//	double timeAfter = clock() / double(CLOCKS_PER_SEC);
-//	double elapsed = timeAfter - timeBefore;
-//	size_t totalCells = size_t(m_nTets) + m_nPyrs + m_nPrisms + m_nHexes;
-//	fprintf(stderr, "CPU time for compressed UGRID file write = %5.2F seconds\n",
-//					elapsed);
-//	fprintf(stderr, "                          %5.2F million cells / minute\n",
-//					(totalCells / 1000000.) / (elapsed / 60));
-//
-//	return true;
-//}
+	 for (emInt i=0; i<numBdryQuads();i++){
+	 	const emInt *verts=getBdryQuadConn(i);
+		vertsBdry.insert(verts[0]);
+	 	vertsBdry.insert(verts[1]);
+		vertsBdry.insert(verts[2]);
+	 	vertsBdry.insert(verts[3]);
+	}
 
+	
+
+	for(auto it=vertsBdry.begin(); it!=vertsBdry.end();it++){
+
+		struct vertsPartBdry objTemp; 
+		double coord[3]; 
+	 	getCoords(*it,coord); 
+
+		objTemp.ID=*it;
+		objTemp.Part=rank;
+		objTemp.coord[0]=coord[0];
+		objTemp.coord[1]=coord[1];
+		objTemp.coord[2]=coord[2];
+
+		temp.push_back(objTemp);
+
+	 }
+
+	return temp; 
+
+};
