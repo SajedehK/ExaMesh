@@ -27,7 +27,12 @@
 #include <memory>
 #include <vector>
 #include <iostream>
-
+#include <fstream>
+// Sajedeh adds this: 
+#include <execution>
+#include <algorithm>
+//#include "tbb/parallel_for.h"
+//#include "tbb/task_scheduler_init.h"
 using std::cout;
 using std::endl;
 
@@ -85,8 +90,9 @@ static double pyrVolume(const double coords0[], const double coords1[],
 // TODO  Transplant into a new ExaMesh.cxx
 void ExaMesh::setupLengthScales() {
 	if (!m_lenScale) {
-		m_lenScale = new double[numVerts()];
+		m_lenScale = new double[numVerts()];  // m_lenScale is a pointer to double type ! in fact: an array of doubles ;
 	}
+	//so, m_lenScale is just an array of type doubles; for each vertex; we will have lenScale for each vertex 
 	std::vector<double> vertVolume(numVerts(), 0);
 	std::vector<double> vertSolidAngle(numVerts(), 0);
 
@@ -274,8 +280,8 @@ void ExaMesh::setupLengthScales() {
 		diheds[7] = safe_acos(-DOT(norm0374, norm3267));
 		diheds[8] = safe_acos(-DOT(norm1045, norm7654));
 		diheds[9] = safe_acos(-DOT(norm2156, norm7654));
-		diheds[10] = safe_acos(-DOT(norm3267, norm7654));
-		diheds[11] = safe_acos(-DOT(norm0374, norm7654));
+		diheds[10]= safe_acos(-DOT(norm3267, norm7654));
+		diheds[11]= safe_acos(-DOT(norm0374, norm7654));
 
 
 		// Solid angles are in the order: 0, 1, 2, 3, 4, 5, 6, 7
@@ -320,6 +326,7 @@ void ExaMesh::setupLengthScales() {
 		double volume = vertVolume[vv] * (4 * M_PI) / vertSolidAngle[vv];
 		double radius = cbrt(volume / (4 * M_PI / 3.));
 		m_lenScale[vv] = radius;
+		
 	}
 }
 
@@ -387,7 +394,7 @@ void ExaMesh::refineForParallel(const emInt numDivs,
 	// N*maxCells, you'll get N parts.  With N*maxCells + 1, you'll get N+1.
 	emInt nParts = (outputCells - 1) / maxCellsPerPart + 1;
 	if (nParts > numCells) nParts = numCells;
-
+	nParts=2; 
 	// Partition the mesh.
 	std::vector<Part> parts;
 	std::vector<CellPartData> vecCPD;
@@ -407,13 +414,13 @@ void ExaMesh::refineForParallel(const emInt numDivs,
 //#pragma omp parallel for schedule(dynamic) reduction(+: totalRefineTime, totalExtractTime, totalTets, totalPyrs, totalPrisms, totalHexes, totalCells) num_threads(8)
 	for (ii = 0; ii < nParts; ii++) {
 		start = exaTime();
-//		char filename[100];
-//		sprintf(filename, "/tmp/submesh%03d.vtk", ii);
-//		writeVTKFile(filename);
+		//char filename[100];
+		// sprintf(filename, "fine-submesh%03d.vtk", ii);
+		// writeVTKFile(filename);
 		printf("Part %3d: cells %5d-%5d.\n", ii, parts[ii].getFirst(),
 						parts[ii].getLast());
-		std::unique_ptr<UMesh> pUM = createFineUMesh(numDivs, parts[ii], vecCPD,
-																									RS);
+		std::unique_ptr<UMesh> pUM = createFineUMesh(numDivs, parts[ii], vecCPD, RS);
+		
 		totalRefineTime += RS.refineTime;
 		totalExtractTime += RS.extractTime;
 		totalCells += RS.cells;
@@ -428,9 +435,9 @@ void ExaMesh::refineForParallel(const emInt numDivs,
 		printf("                          %5.2F million cells / minute\n",
 						(RS.cells / 1000000.) / (RS.refineTime / 60));
 
-//		char filename[100];
-//		sprintf(filename, "/tmp/fine-submesh%03d.vtk", ii);
-//		pUM->writeVTKFile(filename);
+		char filename[100];
+		sprintf(filename, "fine-submesh%03d.vtk", ii);
+		pUM->writeVTKFile(filename);
 	}
 	printf("\nDone parallel refinement with %d parts.\n", nParts);
 	printf("Time for partitioning:           %10.3F seconds\n",
@@ -563,3 +570,164 @@ void ExaMesh::refineForParallel(const emInt numDivs,
 //	fprintf(stderr, "Done filling up face maps\n");
 //	fprintf(stderr, "Done building face cell connectivity\n");
 //}
+
+void ExaMesh::refineForMPI(const emInt numDivs,const emInt nPart) const{
+    std::vector<Part> parts;
+	std::vector<CellPartData> vecCPD;
+	double start = exaTime();
+	partitionCells(this, nPart, parts, vecCPD);
+	double partitionTime = exaTime() - start;
+	
+	struct RefineStats RS;
+	MPI_Init(NULL,NULL); 
+	emInt  *receiveCount = new emInt[nPart];
+    emInt  *disps = new emInt[nPart];
+	std::vector<struct vertsPartBdry> buffer; 
+	emInt rank,size;
+    emInt  totalLengthBuffer=0;
+	emInt localSize; 
+	std::vector<struct vertsPartBdry>  identicalVerts;
+	std::vector<struct vertsPartBdry> RecvIdenticalVerts; 
+	emInt sizeRecvIdenticalVerts; 
+	MPI_Comm_rank(MPI_COMM_WORLD, &rank);
+    MPI_Comm_size(MPI_COMM_WORLD, &size);
+	 std::unique_ptr<UMesh> pUM = createFineUMesh(numDivs, parts[rank], vecCPD,RS);
+	//MPI_Reduce(&RefinementTime,&MaxRefineTime,1,MPI_DOUBLE,MPI_MAX,MASTER,MPI_COMM_WORLD); 
+	
+	char filename[100];
+	sprintf(filename, "MPI-fine-submesh%03d.vtk",rank);
+
+	char filenameForIdenticalVerts[100];
+	sprintf(filenameForIdenticalVerts, "Identical-verts-submesh%03d.txt",rank);
+
+
+
+
+    // pUM->writeVTKFile(filename);
+	// pUM->writeUGridFile(filename);
+    std::vector<struct vertsPartBdry> temp;
+	temp=pUM->getVertsPartBdry(rank); 
+    localSize=temp.size(); 
+	MPI_Gather(&localSize, 1, MPI_INT,receiveCount, 1, MPI_INT, 0, MPI_COMM_WORLD);
+	if(rank==MASTER){
+		for(int i=0; i<nPart;i++){
+			disps[i] = (i > 0) ? (disps[i-1] + receiveCount[i-1]) : 0;
+			totalLengthBuffer=totalLengthBuffer+receiveCount[i]; 
+		}
+		buffer.resize(totalLengthBuffer); 
+	}
+
+	MPI_Datatype type=register_mpi_type(temp[0]);
+	MPI_Gatherv(temp.data(), temp.size(), type, buffer.data(), receiveCount, disps,
+                   type, MASTER,MPI_COMM_WORLD); 
+
+ 	if(rank==MASTER){
+ 		
+		identicalVerts=sortBuffer(buffer); 
+		//WriteBuffer("sorted buffer.txt",buffer);
+		//WriteIdenticalVerts("Identical verts.txt",buffer);
+		sizeRecvIdenticalVerts=identicalVerts.size(); 
+	}
+
+	MPI_Bcast(&sizeRecvIdenticalVerts,1,MPI_INT32_T,MASTER,MPI_COMM_WORLD); 
+	identicalVerts.resize(sizeRecvIdenticalVerts); 
+
+	MPI_Bcast(identicalVerts.data(),identicalVerts.size(),type,MASTER,MPI_COMM_WORLD); //Its broadcasted to the whole processors 
+
+	WriteIdenticalVerts(filenameForIdenticalVerts,identicalVerts); 
+	delete disps;
+ 	delete receiveCount; 
+	MPI_Type_free(&type); 
+ 	MPI_Finalize(); 
+}
+
+
+// pls, be aware that I anticipate if later on, any unxecpected things happen without any obvious reason,
+// the value of epsilon can be a problem 
+bool operator==(const vertsPartBdry& a, const vertsPartBdry& b)
+{
+	bool comp=false; 
+	if(a.Part!=b.Part){
+			if(fabs(a.coord[0]-b.coord[0])<epsilon && fabs(a.coord[1]-b.coord[1])
+								<epsilon &&fabs(a.coord[2]-b.coord[2])<epsilon){
+		
+		
+			comp=true; 
+		}
+
+	}
+
+
+	return comp; 
+};
+
+
+bool compX(const vertsPartBdry&a,const vertsPartBdry&b){
+	if(a.coord[0]<b.coord[0]) return true;
+	if(a.coord[0]>b.coord[0]) return false; 
+};
+bool compY(const vertsPartBdry&a,const vertsPartBdry&b){
+	if(a.coord[1]<b.coord[1]) return true;
+	if(a.coord[1]>b.coord[1]) return false; 
+
+}; 
+bool compZ(const vertsPartBdry&a,const vertsPartBdry&b){
+	if(a.coord[2]<b.coord[2]) return true;
+	if(a.coord[2]>b.coord[2]) return false; 
+
+};
+
+
+MPI_Datatype register_mpi_type(vertsPartBdry const&){
+	constexpr std::size_t num_members=3; 
+	int lengths[num_members]={1,1,3};
+	MPI_Aint offsets[num_members]={
+		offsetof(struct vertsPartBdry,ID),offsetof(struct vertsPartBdry,Part), offsetof(struct vertsPartBdry,coord)
+	};
+	MPI_Datatype types[num_members]={MPI_INT32_T,MPI_INT32_T,MPI_DOUBLE};
+	MPI_Datatype type;
+	MPI_Type_create_struct(num_members,lengths,offsets,types,&type);
+	MPI_Type_commit(&type);
+	return type; 
+}
+
+
+std::vector<struct vertsPartBdry> sortBuffer(std::vector<struct vertsPartBdry>&x){
+
+	// Do it in one shot instead of three times 
+	
+	std::sort(std::execution::par,x.begin(),x.end(),compZ);            
+	std::stable_sort(std::execution::par,x.begin(),x.end(),compY);
+	std::stable_sort(std::execution::par,x.begin(),x.end(),compX);
+	return x; 
+
+}
+
+void WriteIdenticalVerts(const char fileName[], std::vector<struct vertsPartBdry> &x){
+	std::ofstream out(fileName);
+	if(x[0]==x[1]){
+		out<< x[0].Part<<"   "<<x[0].ID<<"   "<<x[0].coord[0]<<"   "<<x[0].coord[1]<<"   "<<x[0].coord[2]<<endl;
+		out<< x[1].Part<<"   "<<x[1].ID<<"   "<<x[1].coord[0]<<"   "<<x[1].coord[1]<<"   "<<x[1].coord[2]<<endl; 
+
+	}
+	for(auto i=1; i<x.size()-1;i++){
+		if(x[i]==x[i+1]){
+			if((x[i]==x[i-1])==false){
+				out<< x[i].Part<<"     "<<x[i].ID<<"     "<<x[i].coord[0]<<"    "<<x[i].coord[1]<<"   "<<x[i].coord[2]<<endl;
+	 			out<< x[i+1].Part<<"   "<<x[i+1].ID<<"   "<<x[i+1].coord[0]<<"   "<<x[i+1].coord[1]<<"   "<<x[i+1].coord[2]<<endl; 
+
+			}else{
+				out<< x[i+1].Part<<"   "<<x[i+1].ID<<"   "<<x[i+1].coord[0]<<"   "<<x[i+1].coord[1]<<"   "<<x[i+1].coord[2]<<endl;
+			}
+
+		}
+	}
+
+}
+
+void WriteBuffer(const char fileName[], const std::vector<struct vertsPartBdry>&x){
+	std::ofstream out(fileName); 
+	for(auto i=0; i<x.size();i++){
+		out<<x[i].Part<<"    "<<x[i].ID<<"    "<<x[i].coord[0]<<"    "<<x[i].coord[1]<<"    "<<x[i].coord[2]<<endl; 
+	}
+}
