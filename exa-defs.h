@@ -29,7 +29,10 @@
 #include <cmath>
 #include <stdint.h>
 #include <limits.h>
-
+#include <cstddef>
+#include <mpi.h> 
+#include <vector>
+#include <fstream>
 #include "exa_config.h"
 
 #ifdef _OPENMP
@@ -223,5 +226,21 @@ struct RefineStats {
 	emInt cells;
 	size_t fileSize;
 };
+struct vertsPartBdry{
+ 	emInt ID;
+ 	emInt Part; 
+ 	double coord[3];
+
+};
+bool operator==(const vertsPartBdry& a, const vertsPartBdry& b);
+bool compX(const vertsPartBdry&a,const vertsPartBdry&b);
+bool compY(const vertsPartBdry&a,const vertsPartBdry&b); 
+bool compZ(const vertsPartBdry&a,const vertsPartBdry&b); 
+//std::vector<struct vertsPartBdry>findIdenticalVerts(std::vector<struct vertsPartBdry> &x); 
+std::vector<struct vertsPartBdry>sortBuffer(std::vector<struct vertsPartBdry> &x );  // assigned to MASTER 
+
+MPI_Datatype register_mpi_type(vertsPartBdry const&);
+void WriteIdenticalVerts(const char fileName[],std::vector<struct vertsPartBdry> &x);
+void WriteBuffer(const char fileName[], const std::vector<struct vertsPartBdry>&x);
 
 #endif /* SRC_EXA_DEFS_H_ */
